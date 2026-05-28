@@ -1,4 +1,4 @@
-    <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -228,7 +228,7 @@
     <div class="auth-info">
       <p>Al conectarte, la app podrá crear reuniones en Teams y agregarlas al calendario de todos los participantes automáticamente.</p>
     </div>
-    <p class="config-note">¿Primera vez? <a href="#" onclick="showConfigModal()">Configura tu Azure App</a></p>
+    <p class="config-note" style="display:none">¿Primera vez? <a href="#" onclick="showConfigModal()">Configura tu Azure App</a></p>
   </div>
 </div>
 
@@ -397,7 +397,17 @@
 // ─────────────────────────────────────────────
 //  CONFIG & STATE
 // ─────────────────────────────────────────────
-let CFG = JSON.parse(localStorage.getItem('salasapp_config') || '{}');
+// Configuración incrustada — los usuarios no necesitan configurar nada
+const CFG_DEFAULT = {
+  clientId: 'aadecb73-ba9b-4c1b-aa24-c8330fbddbb6',
+  tenantId: 'dfae8d3b-8fb0-4e29-8b7b-42e7d17142cf',
+  sala1Name: 'Sala A',
+  sala2Name: 'Sala B',
+  sala1Email: '',
+  sala2Email: ''
+};
+const CFG_SAVED = JSON.parse(localStorage.getItem('salasapp_config') || '{}');
+let CFG = (CFG_SAVED.clientId) ? CFG_SAVED : CFG_DEFAULT;
 let msalInstance = null;
 let currentUser = null;
 let currentView = 'week';
@@ -1153,4 +1163,3 @@ if ('serviceWorker' in navigator) {
 </script>
 </body>
 </html>
-     
