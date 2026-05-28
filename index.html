@@ -428,8 +428,9 @@ function initApp() {
   }
 }
 
-function tryAutoLogin() {
-  setupMSAL();
+async function tryAutoLogin() {
+  await setupMSAL();
+  if (!msalInstance) return;
   const accounts = msalInstance.getAllAccounts();
   if (accounts.length > 0) {
     currentUser = accounts[0];
@@ -437,8 +438,9 @@ function tryAutoLogin() {
   }
 }
 
-function setupMSAL() {
+async function setupMSAL() {
   if (!CFG.clientId || !CFG.tenantId) return;
+  if (msalInstance) return; // already initialized
   try {
     msalInstance = new msal.PublicClientApplication({
       auth: {
@@ -448,10 +450,11 @@ function setupMSAL() {
       },
       cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
     });
-    msalInstance.initialize();
+    await msalInstance.initialize();
     isGraphAvailable = true;
   } catch(e) {
     console.error('MSAL init error:', e);
+    msalInstance = null;
   }
 }
 
@@ -463,9 +466,10 @@ async function signIn() {
     showConfigModal();
     return;
   }
-  setupMSAL();
   showLoading('Iniciando sesión con Microsoft...');
   try {
+    await setupMSAL();
+    if (!msalInstance) { hideLoading(); toast('Error: revisa el Client ID y Tenant ID', 'error'); return; }
     const resp = await msalInstance.loginPopup({
       scopes: ['User.Read', 'Calendars.ReadWrite', 'OnlineMeetings.ReadWrite']
     });
@@ -1129,9 +1133,8 @@ async function handleMsalRedirect() {
 // ─────────────────────────────────────────────
 //  BOOT
 // ─────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   initApp();
-  handleMsalRedirect();
 
   // Set default booking date
   const today = formatDateLocal(new Date());
