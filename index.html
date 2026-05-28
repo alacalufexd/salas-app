@@ -374,6 +374,11 @@
       <label>Descripción / Agenda (opcional)</label>
       <input type="text" id="bk-desc" placeholder="Temas a tratar...">
     </div>
+    <div class="form-group">
+      <label>Invitar participantes (opcional)</label>
+      <input type="text" id="bk-attendees" placeholder="correo1@mdai.cl, correo2@mdai.cl">
+      <p class="hint">Separa múltiples correos con coma. Recibirán invitación de Teams y quedará en su calendario.</p>
+    </div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeBookingModal()">Cancelar</button>
       <button class="btn-primary" id="btn-book" onclick="createBooking()">Confirmar reserva</button>
@@ -693,30 +698,56 @@ async function createGraphEvent(eventData) {
   const sala = eventData.sala === 1 ? (CFG.sala1Name || 'Sala A') : (CFG.sala2Name || 'Sala B');
   const salaEmail = eventData.sala === 1 ? CFG.sala1Email : CFG.sala2Email;
   const myEmail = currentUser?.username?.toLowerCase();
+  const myName = currentUser?.name || myEmail;
   const isCentral = myEmail === CFG.centralAccount.toLowerCase();
 
-  // Agregar al usuario actual como asistente para que aparezca en su propio calendario
+  // ── Construir lista de asistentes ──
   const attendees = [];
+
+  // 1. El creador SIEMPRE queda como asistente requerido → aparece en su Teams
+  if (!isCentral) {
+    attendees.push({
+      emailAddress: { address: myEmail, name: myName },
+      type: 'required'
+    });
+  }
+
+  // 2. Participantes extra ingresados en el formulario
+  if (eventData.attendees && eventData.attendees.length > 0) {
+    eventData.attendees.forEach(email => {
+      if (email.toLowerCase() !== myEmail) {
+        attendees.push({ emailAddress: { address: email, name: email }, type: 'required' });
+      }
+    });
+  }
+
+  // 3. Sala como recurso (si tiene email configurado)
   if (salaEmail) {
     attendees.push({ emailAddress: { address: salaEmail, name: sala }, type: 'resource' });
   }
-  // Siempre agregar la cuenta central como organizador/asistente
-  if (!isCentral) {
-    attendees.push({ emailAddress: { address: CFG.centralAccount, name: 'Salas MDA' }, type: 'required' });
-  }
 
-  const body = {
+  const htmlBody = `
+    <p><b>Sala reservada:</b> ${sala}</p>
+    <p><b>Organiza:</b> ${myName} (${myEmail})</p>
+    <p><b>Descripción:</b> ${eventData.description || 'Sin descripción'}</p>
+    <br>
+    <p style="color:#555;font-size:12px">Reservado vía SalasApp · ${new Date().toLocaleString('es-CL')}</p>
+  `;
+
+  const graphBody = {
     subject: `[${sala}] ${eventData.title}`,
     start: { dateTime: eventData.start, timeZone: 'America/Santiago' },
     end: { dateTime: eventData.end, timeZone: 'America/Santiago' },
     location: { displayName: sala },
-    body: { contentType: 'HTML', content: `<p><b>Sala reservada:</b> ${sala}</p><p><b>Organiza:</b> ${eventData.organizer}</p><p><b>Descripción:</b> ${eventData.description || 'Sin descripción'}</p><p style="color:#666;font-size:12px">Reservado vía SalasApp</p>` },
+    body: { contentType: 'HTML', content: htmlBody },
     isOnlineMeeting: true,
     onlineMeetingProvider: 'teamsForBusiness',
-    attendees
+    attendees,
+    // Mostrar al creador real como organizador en el cuerpo
+    responseRequested: true
   };
 
-  // Intentar crear en el calendario central primero
+  // Intentar crear en el calendario CENTRAL para que todos lo vean
   const centralUrl = isCentral
     ? 'https://graph.microsoft.com/v1.0/me/events'
     : `https://graph.microsoft.com/v1.0/users/${CFG.centralAccount}/events`;
@@ -724,19 +755,22 @@ async function createGraphEvent(eventData) {
   let resp = await fetch(centralUrl, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify(graphBody)
   });
   let created = await resp.json();
 
-  // Si falla (sin permiso sobre cuenta central), crear en propio calendario
+  // Si falla acceso al calendario central, crear en el propio calendario del usuario
+  // Los asistentes igualmente reciben la invitación de Teams
   if (created.error) {
+    console.warn('[SalasApp] Fallback: creando en calendario propio del usuario');
     resp = await fetch('https://graph.microsoft.com/v1.0/me/events', {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(graphBody)
     });
     created = await resp.json();
   }
+
   return created;
 }
 
@@ -812,6 +846,7 @@ function openBookingModal(prefillDate = null, prefillHour = null) {
   document.getElementById('bk-end').value = pad(h + 1) + ':00';
   document.getElementById('bk-title').value = '';
   document.getElementById('bk-desc').value = '';
+  document.getElementById('bk-attendees').value = '';
   selectedSala = 1;
   document.getElementById('sc-sala1').classList.add('selected');
   document.getElementById('sc-sala2').classList.remove('selected');
@@ -865,6 +900,10 @@ async function createBooking() {
   const start = document.getElementById('bk-start').value;
   const end = document.getElementById('bk-end').value;
   const desc = document.getElementById('bk-desc').value.trim();
+  const attendeesRaw = document.getElementById('bk-attendees').value.trim();
+  const extraAttendees = attendeesRaw
+    ? attendeesRaw.split(',').map(e => e.trim()).filter(e => e.includes('@'))
+    : [];
 
   if (!title) { toast('Ingresa un título para la reunión', 'error'); return; }
   if (!date || !start || !end) { toast('Completa todos los campos de fecha y hora', 'error'); return; }
@@ -887,6 +926,7 @@ async function createBooking() {
     organizer: currentUser?.name || currentUser?.username || 'Tú',
     organizerEmail: currentUser?.username,
     description: desc,
+    attendees: extraAttendees,
     graphId: null,
     teamsUrl: null
   };
@@ -943,6 +983,7 @@ function openPanel(event) {
       <div class="panel-field-value">${escHtml(event.organizer)}</div>
     </div>
     ${event.description ? `<div class="panel-field"><div class="panel-field-label">📝 Descripción</div><div class="panel-field-value" style="color:var(--text2);font-size:.85rem">${escHtml(event.description)}</div></div>` : ''}
+    ${event.attendees && event.attendees.length > 0 ? `<div class="panel-field"><div class="panel-field-label">👥 Participantes</div><div class="panel-field-value" style="color:var(--text2);font-size:.85rem">${event.attendees.map(a => escHtml(a)).join('<br>')}</div></div>` : ''}
     <hr class="panel-divider">
     ${event.teamsUrl ? `<a href="${event.teamsUrl}" target="_blank" style="display:flex;align-items:center;gap:8px;padding:11px 14px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);border-radius:var(--radius);color:#93c5fd;text-decoration:none;font-size:.85rem;font-weight:600;margin-bottom:.75rem;">🔗 Unirse a la reunión de Teams</a>` : ''}
     ${canCancelEvent(event) ? `<button class="btn-cancel-event" onclick="cancelBooking('${event.id}')">🗑️ Cancelar esta reserva</button>` : '<p style="font-size:.8rem;color:var(--text3);text-align:center;margin-top:.5rem">Solo los administradores pueden cancelar reservas.</p>'}
