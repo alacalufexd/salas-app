@@ -398,6 +398,7 @@
 //  CONFIG & STATE
 // ─────────────────────────────────────────────
 // Configuración incrustada — los usuarios no necesitan configurar nada
+// IDs de Azure incrustados — no se pueden sobreescribir por localStorage
 const CFG_DEFAULT = {
   clientId: 'aadecb73-ba9b-4c1b-aa24-c8330fbddbb6',
   tenantId: 'dfae8d3b-8fb0-4e29-8b7b-42e7d17142cf',
@@ -406,8 +407,15 @@ const CFG_DEFAULT = {
   sala1Email: '',
   sala2Email: ''
 };
+// Merge: clientId y tenantId SIEMPRE vienen del código; solo nombres de sala pueden personalizarse
 const CFG_SAVED = JSON.parse(localStorage.getItem('salasapp_config') || '{}');
-let CFG = (CFG_SAVED.clientId) ? CFG_SAVED : CFG_DEFAULT;
+let CFG = {
+  ...CFG_DEFAULT,
+  sala1Name: CFG_SAVED.sala1Name || CFG_DEFAULT.sala1Name,
+  sala2Name: CFG_SAVED.sala2Name || CFG_DEFAULT.sala2Name,
+  sala1Email: CFG_SAVED.sala1Email || CFG_DEFAULT.sala1Email,
+  sala2Email: CFG_SAVED.sala2Email || CFG_DEFAULT.sala2Email,
+};
 let msalInstance = null;
 let currentUser = null;
 let currentView = 'week';
