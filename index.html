@@ -398,16 +398,19 @@
 //  CONFIG & STATE
 // ─────────────────────────────────────────────
 // Configuración incrustada — los usuarios no necesitan configurar nada
-// IDs de Azure incrustados — no se pueden sobreescribir por localStorage
+// ── CONFIGURACIÓN CENTRAL (no modificar sin autorización) ──
 const CFG_DEFAULT = {
   clientId: 'aadecb73-ba9b-4c1b-aa24-c8330fbddbb6',
   tenantId: 'dfae8d3b-8fb0-4e29-8b7b-42e7d17142cf',
   sala1Name: 'Sala A',
   sala2Name: 'Sala B',
   sala1Email: '',
-  sala2Email: ''
+  sala2Email: '',
+  // Cuenta cuyo calendario es la fuente central de verdad
+  centralAccount: 'asistenteti@mdai.cl',
+  // Emails que pueden eliminar cualquier reserva
+  adminEmails: ['aquintanilla@mdai.cl', 'asistenteti@mdai.cl']
 };
-// Merge: clientId y tenantId SIEMPRE vienen del código; solo nombres de sala pueden personalizarse
 const CFG_SAVED = JSON.parse(localStorage.getItem('salasapp_config') || '{}');
 let CFG = {
   ...CFG_DEFAULT,
@@ -416,6 +419,11 @@ let CFG = {
   sala1Email: CFG_SAVED.sala1Email || CFG_DEFAULT.sala1Email,
   sala2Email: CFG_SAVED.sala2Email || CFG_DEFAULT.sala2Email,
 };
+
+function isAdmin(email) {
+  if (!email) return false;
+  return CFG.adminEmails.map(e => e.toLowerCase()).includes(email.toLowerCase());
+}
 let msalInstance = null;
 let currentUser = null;
 let currentView = 'week';
@@ -593,55 +601,79 @@ async function syncFromGraph() {
   setSyncStatus('syncing', 'Sincronizando...');
   try {
     const token = await getAccessToken();
-    // Fetch events from calendar
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
     const end = new Date(now.getFullYear(), now.getMonth() + 3, 1).toISOString();
-    const resp = await fetch(
-      `https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=${start}&endDateTime=${end}&$select=id,subject,start,end,organizer,body,location,onlineMeeting&$top=200`,
-      { headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.timezone="America/Santiago"' } }
-    );
-    const data = await resp.json();
-    if (data.value) {
-      // Filter events that match sala names
-      const salaEvents = data.value.filter(e => {
-        const loc = (e.location?.displayName || '').toLowerCase();
-        const sub = (e.subject || '').toLowerCase();
-        const s1 = (CFG.sala1Name || 'Sala A').toLowerCase();
-        const s2 = (CFG.sala2Name || 'Sala B').toLowerCase();
-        return loc.includes(s1) || loc.includes(s2) || sub.includes('sala');
-      });
-      // Merge with local events
-      mergeGraphEvents(data.value);
+    const params = `startDateTime=${start}&endDateTime=${end}&$select=id,subject,start,end,organizer,body,location,onlineMeeting&$top=200`;
+    const headers = { Authorization: `Bearer ${token}`, Prefer: 'outlook.timezone="America/Santiago"' };
+
+    // Estrategia 1: leer el calendario compartido usando el endpoint de usuarios
+    // Esto funciona cuando el calendario de asistenteti está compartido con "Puede editar"
+    const myEmail = currentUser?.username?.toLowerCase();
+    const isCentral = myEmail === CFG.centralAccount.toLowerCase();
+
+    let allEvents = [];
+
+    if (!isCentral) {
+      // Intentar leer el calendario central via /users/
+      const r1 = await fetch(
+        `https://graph.microsoft.com/v1.0/users/${CFG.centralAccount}/calendarView?${params}`,
+        { headers }
+      );
+      const d1 = await r1.json();
+      if (d1.value && !d1.error) {
+        allEvents = d1.value;
+        console.log('[SalasApp] Sincronizado desde calendario central:', allEvents.length, 'eventos');
+      } else {
+        console.warn('[SalasApp] No se pudo leer calendario central, error:', d1.error?.message);
+        // Estrategia 2: leer el calendario propio y filtrar eventos de salas
+        const r2 = await fetch(
+          `https://graph.microsoft.com/v1.0/me/calendarView?${params}`,
+          { headers }
+        );
+        const d2 = await r2.json();
+        if (d2.value) allEvents = d2.value;
+      }
+    } else {
+      // Es la cuenta central, leer /me directamente
+      const r = await fetch(
+        `https://graph.microsoft.com/v1.0/me/calendarView?${params}`,
+        { headers }
+      );
+      const d = await r.json();
+      if (d.value) allEvents = d.value;
     }
+
+    // Limpiar eventos de Graph anteriores y recargar frescos
+    events = events.filter(e => !e.graphId);
+    mergeGraphEvents(allEvents);
     setSyncStatus('online', 'Sincronizado');
     renderCalendar();
   } catch(e) {
     setSyncStatus('offline', 'Error de sincronización');
-    console.error('Graph sync error:', e);
+    console.error('[SalasApp] Graph sync error:', e);
   }
 }
 
 function mergeGraphEvents(graphEvents) {
   graphEvents.forEach(ge => {
-    const existing = events.find(e => e.graphId === ge.id);
-    if (!existing) {
-      const sala = detectSala(ge);
-      if (sala) {
-        events.push({
-          id: 'graph_' + ge.id,
-          graphId: ge.id,
-          title: ge.subject || 'Reunión',
-          sala: sala,
-          start: ge.start.dateTime || ge.start,
-          end: ge.end.dateTime || ge.end,
-          organizer: ge.organizer?.emailAddress?.name || 'Desconocido',
-          organizerEmail: ge.organizer?.emailAddress?.address,
-          teamsUrl: ge.onlineMeeting?.joinUrl || null,
-          description: ge.body?.content?.replace(/<[^>]+>/g, '').trim().slice(0, 200) || ''
-        });
-      }
-    }
+    const sala = detectSala(ge);
+    if (!sala) return; // ignorar eventos que no son de salas
+    const idx = events.findIndex(e => e.graphId === ge.id);
+    const ev = {
+      id: 'graph_' + ge.id,
+      graphId: ge.id,
+      title: (ge.subject || 'Reunión').replace(/^\[Sala [AB]\]\s*/i, ''),
+      sala: sala,
+      start: ge.start.dateTime || ge.start,
+      end: ge.end.dateTime || ge.end,
+      organizer: ge.organizer?.emailAddress?.name || 'Desconocido',
+      organizerEmail: ge.organizer?.emailAddress?.address,
+      teamsUrl: ge.onlineMeeting?.joinUrl || null,
+      description: ge.body?.content?.replace(/<[^>]+>/g, '').trim().slice(0, 200) || ''
+    };
+    if (idx >= 0) events[idx] = ev; // actualizar existente
+    else events.push(ev);           // agregar nuevo
   });
   saveEvents();
 }
@@ -660,29 +692,51 @@ async function createGraphEvent(eventData) {
   const token = await getAccessToken();
   const sala = eventData.sala === 1 ? (CFG.sala1Name || 'Sala A') : (CFG.sala2Name || 'Sala B');
   const salaEmail = eventData.sala === 1 ? CFG.sala1Email : CFG.sala2Email;
-  
+  const myEmail = currentUser?.username?.toLowerCase();
+  const isCentral = myEmail === CFG.centralAccount.toLowerCase();
+
+  // Agregar al usuario actual como asistente para que aparezca en su propio calendario
   const attendees = [];
   if (salaEmail) {
     attendees.push({ emailAddress: { address: salaEmail, name: sala }, type: 'resource' });
   }
+  // Siempre agregar la cuenta central como organizador/asistente
+  if (!isCentral) {
+    attendees.push({ emailAddress: { address: CFG.centralAccount, name: 'Salas MDA' }, type: 'required' });
+  }
 
   const body = {
-    subject: eventData.title,
+    subject: `[${sala}] ${eventData.title}`,
     start: { dateTime: eventData.start, timeZone: 'America/Santiago' },
     end: { dateTime: eventData.end, timeZone: 'America/Santiago' },
     location: { displayName: sala },
-    body: { contentType: 'text', content: eventData.description || '' },
+    body: { contentType: 'HTML', content: `<p><b>Sala reservada:</b> ${sala}</p><p><b>Organiza:</b> ${eventData.organizer}</p><p><b>Descripción:</b> ${eventData.description || 'Sin descripción'}</p><p style="color:#666;font-size:12px">Reservado vía SalasApp</p>` },
     isOnlineMeeting: true,
     onlineMeetingProvider: 'teamsForBusiness',
     attendees
   };
 
-  const resp = await fetch('https://graph.microsoft.com/v1.0/me/events', {
+  // Intentar crear en el calendario central primero
+  const centralUrl = isCentral
+    ? 'https://graph.microsoft.com/v1.0/me/events'
+    : `https://graph.microsoft.com/v1.0/users/${CFG.centralAccount}/events`;
+
+  let resp = await fetch(centralUrl, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
-  const created = await resp.json();
+  let created = await resp.json();
+
+  // Si falla (sin permiso sobre cuenta central), crear en propio calendario
+  if (created.error) {
+    resp = await fetch('https://graph.microsoft.com/v1.0/me/events', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    created = await resp.json();
+  }
   return created;
 }
 
@@ -690,6 +744,21 @@ async function cancelGraphEvent(graphId) {
   if (!isGraphAvailable || !currentUser || !graphId) return false;
   try {
     const token = await getAccessToken();
+    const myEmail = currentUser?.username?.toLowerCase();
+    const isCentral = myEmail === CFG.centralAccount.toLowerCase();
+
+    // Intentar eliminar del calendario central
+    const deleteUrl = isCentral
+      ? `https://graph.microsoft.com/v1.0/me/events/${graphId}`
+      : `https://graph.microsoft.com/v1.0/users/${CFG.centralAccount}/events/${graphId}`;
+
+    const resp = await fetch(deleteUrl, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (resp.status === 204 || resp.status === 200) return true;
+
+    // Fallback: eliminar del propio calendario
     await fetch(`https://graph.microsoft.com/v1.0/me/events/${graphId}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` }
@@ -704,7 +773,19 @@ async function cancelGraphEvent(graphId) {
 // ─────────────────────────────────────────────
 //  LOCAL EVENTS STORAGE
 // ─────────────────────────────────────────────
-function saveEvents() { localStorage.setItem('salasapp_events', JSON.stringify(events)); }
+function saveEvents() {
+  localStorage.setItem('salasapp_events', JSON.stringify(events));
+  // Broadcast to other tabs/windows so they refresh instantly
+  try { localStorage.setItem('salasapp_events_ts', Date.now().toString()); } catch(e) {}
+}
+
+// Listen for changes from other tabs
+window.addEventListener('storage', (e) => {
+  if (e.key === 'salasapp_events_ts') {
+    events = JSON.parse(localStorage.getItem('salasapp_events') || '[]');
+    renderCalendar();
+  }
+});
 
 function checkConflict(sala, startDt, endDt, excludeId = null) {
   const start = new Date(startDt).getTime();
@@ -864,16 +945,18 @@ function openPanel(event) {
     ${event.description ? `<div class="panel-field"><div class="panel-field-label">📝 Descripción</div><div class="panel-field-value" style="color:var(--text2);font-size:.85rem">${escHtml(event.description)}</div></div>` : ''}
     <hr class="panel-divider">
     ${event.teamsUrl ? `<a href="${event.teamsUrl}" target="_blank" style="display:flex;align-items:center;gap:8px;padding:11px 14px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);border-radius:var(--radius);color:#93c5fd;text-decoration:none;font-size:.85rem;font-weight:600;margin-bottom:.75rem;">🔗 Unirse a la reunión de Teams</a>` : ''}
-    ${canCancelEvent(event) ? `<button class="btn-cancel-event" onclick="cancelBooking('${event.id}')">🗑️ Cancelar esta reserva</button>` : '<p style="font-size:.8rem;color:var(--text3);text-align:center;margin-top:.5rem">Solo el organizador puede cancelar esta reserva.</p>'}
+    ${canCancelEvent(event) ? `<button class="btn-cancel-event" onclick="cancelBooking('${event.id}')">🗑️ Cancelar esta reserva</button>` : '<p style="font-size:.8rem;color:var(--text3);text-align:center;margin-top:.5rem">Solo los administradores pueden cancelar reservas.</p>'}
   `;
   document.getElementById('detail-panel').classList.add('open');
 }
 
 function canCancelEvent(event) {
   if (!currentUser) return false;
-  const orgEmail = event.organizerEmail?.toLowerCase();
   const myEmail = currentUser.username?.toLowerCase();
-  return !orgEmail || orgEmail === myEmail;
+  // Admins pueden cancelar cualquier reserva
+  if (isAdmin(myEmail)) return true;
+  // El resto no puede cancelar
+  return false;
 }
 
 function closePanel() {
@@ -1089,11 +1172,17 @@ function navigateToEvent(ev) {
 //  TIME UPDATER
 // ─────────────────────────────────────────────
 function startTimeUpdater() {
+  // Update current time line every minute
   setInterval(() => {
     document.querySelectorAll('.current-time-line').forEach(el => {
       el.style.top = getTimePct() + 'px';
     });
   }, 60000);
+
+  // Re-sync from Graph every 2 minutes to pick up reservations from other users
+  setInterval(() => {
+    syncFromGraph();
+  }, 120000);
 }
 
 // ─────────────────────────────────────────────
