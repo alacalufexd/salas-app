@@ -191,6 +191,18 @@
   .sync-dot.syncing { background: var(--warning); animation: pulse 1s infinite; }
   @keyframes pulse { 50% { opacity: .4; } }
 
+  /* ── RECURRENCE ── */
+  .recur-section { margin-top: 1rem; background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--radius); padding: 14px; }
+  .recur-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: .85rem; font-weight: 600; cursor: pointer; }
+  .recur-toggle { width: 36px; height: 20px; background: var(--bg3); border-radius: 10px; position: relative; transition: background .2s; border: none; cursor: pointer; flex-shrink: 0; }
+  .recur-toggle.on { background: var(--accent); }
+  .recur-toggle::after { content:''; position:absolute; left:3px; top:3px; width:14px; height:14px; background:#fff; border-radius:50%; transition: left .2s; }
+  .recur-toggle.on::after { left:19px; }
+  .recur-options { display: none; }
+  .recur-options.show { display: block; }
+  .recur-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  .recur-info { font-size: .78rem; color: var(--text3); margin-top: 8px; line-height: 1.5; }
+
   /* ── NO EVENTS ── */
   .empty-day { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 200px; color: var(--text3); font-size: .85rem; gap: 8px; }
 
@@ -340,12 +352,10 @@
       <div class="sala-card sala1-card" id="sc-sala1" onclick="selectSala(1)">
         <div class="sala-icon">🟣</div>
         <div class="sala-name" id="sc-sala1-name">Sala A</div>
-        <div class="sala-cap">Hasta 8 personas</div>
       </div>
       <div class="sala-card sala2-card" id="sc-sala2" onclick="selectSala(2)">
         <div class="sala-icon">🔵</div>
         <div class="sala-name" id="sc-sala2-name">Sala B</div>
-        <div class="sala-cap">Hasta 12 personas</div>
       </div>
     </div>
 
@@ -379,7 +389,33 @@
       <input type="text" id="bk-attendees" placeholder="correo1@mdai.cl, correo2@mdai.cl">
       <p class="hint">Separa múltiples correos con coma. Recibirán invitación de Teams y quedará en su calendario.</p>
     </div>
-    <div class="modal-actions">
+    <!-- RECURRENCE -->
+    <div class="recur-section">
+      <div class="recur-header" onclick="toggleRecur()">
+        <button class="recur-toggle" id="recur-toggle"></button>
+        <span>Reunión recurrente</span>
+      </div>
+      <div class="recur-options" id="recur-options">
+        <div class="recur-row">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Frecuencia</label>
+            <select id="bk-recur-freq" onchange="updateRecurInfo()" style="width:100%;padding:10px 14px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:.9rem;outline:none;">
+              <option value="daily">Diaria</option>
+              <option value="weekly" selected>Semanal</option>
+              <option value="biweekly">Quincenal</option>
+              <option value="monthly">Mensual</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Fecha de término</label>
+            <input type="date" id="bk-recur-end" onchange="updateRecurInfo()">
+          </div>
+        </div>
+        <div class="recur-info" id="recur-info">Se crearán las reuniones recurrentes hasta la fecha indicada (máx. 6 meses).</div>
+      </div>
+    </div>
+
+    <div class="modal-actions" style="margin-top:1.2rem">
       <button class="btn-secondary" onclick="closeBookingModal()">Cancelar</button>
       <button class="btn-primary" id="btn-book" onclick="createBooking()">Confirmar reserva</button>
     </div>
@@ -847,6 +883,13 @@ function openBookingModal(prefillDate = null, prefillHour = null) {
   document.getElementById('bk-title').value = '';
   document.getElementById('bk-desc').value = '';
   document.getElementById('bk-attendees').value = '';
+  // Reset recurrence
+  recurEnabled = false;
+  document.getElementById('recur-toggle').classList.remove('on');
+  document.getElementById('recur-options').classList.remove('show');
+  const maxRecurEnd = new Date(); maxRecurEnd.setMonth(maxRecurEnd.getMonth() + 6);
+  document.getElementById('bk-recur-end').value = formatDateLocal(maxRecurEnd);
+  document.getElementById('bk-recur-freq').value = 'weekly';
   selectedSala = 1;
   document.getElementById('sc-sala1').classList.add('selected');
   document.getElementById('sc-sala2').classList.remove('selected');
@@ -858,6 +901,62 @@ function openBookingModal(prefillDate = null, prefillHour = null) {
 }
 
 function closeBookingModal() { document.getElementById('booking-modal').style.display = 'none'; }
+
+// ── RECURRENCE ──
+let recurEnabled = false;
+
+function toggleRecur() {
+  recurEnabled = !recurEnabled;
+  const toggle = document.getElementById('recur-toggle');
+  const opts = document.getElementById('recur-options');
+  toggle.classList.toggle('on', recurEnabled);
+  opts.classList.toggle('show', recurEnabled);
+  if (recurEnabled) updateRecurInfo();
+}
+
+function updateRecurInfo() {
+  const freq = document.getElementById('bk-recur-freq').value;
+  const endVal = document.getElementById('bk-recur-end').value;
+  const startVal = document.getElementById('bk-date').value;
+  if (!endVal || !startVal) { document.getElementById('recur-info').textContent = 'Selecciona la fecha de término.'; return; }
+
+  const start = new Date(startVal);
+  const end = new Date(endVal);
+  const maxEnd = new Date(startVal);
+  maxEnd.setMonth(maxEnd.getMonth() + 6);
+
+  if (end > maxEnd) {
+    document.getElementById('bk-recur-end').value = formatDateLocal(maxEnd);
+    document.getElementById('recur-info').textContent = '⚠️ Máximo 6 meses. Fecha ajustada automáticamente.';
+    return;
+  }
+  if (end <= start) { document.getElementById('recur-info').textContent = '⚠️ La fecha de término debe ser posterior al inicio.'; return; }
+
+  const freqDays = { daily: 1, weekly: 7, biweekly: 14, monthly: 30 };
+  const freqLabel = { daily: 'día', weekly: 'semana', biweekly: '2 semanas', monthly: 'mes' };
+  const count = getRecurDates(startVal, endVal, freq).length;
+  document.getElementById('recur-info').textContent = `Se crearán ${count} reunión(es) cada ${freqLabel[freq]}.`;
+}
+
+function getRecurDates(startDateStr, endDateStr, freq) {
+  const dates = [];
+  const cur = new Date(startDateStr + 'T12:00:00');
+  const end = new Date(endDateStr + 'T12:00:00');
+  const maxEnd = new Date(startDateStr + 'T12:00:00');
+  maxEnd.setMonth(maxEnd.getMonth() + 6);
+  const limit = end < maxEnd ? end : maxEnd;
+  const steps = { daily: 1, weekly: 7, biweekly: 14, monthly: null };
+
+  cur.setDate(cur.getDate()); // start from first occurrence (already included as main booking)
+  let first = true;
+  while (cur <= limit) {
+    if (!first) dates.push(formatDateLocal(cur));
+    first = false;
+    if (freq === 'monthly') cur.setMonth(cur.getMonth() + 1);
+    else cur.setDate(cur.getDate() + steps[freq]);
+  }
+  return dates;
+}
 
 function selectSala(n) {
   selectedSala = n;
@@ -914,45 +1013,73 @@ async function createBooking() {
   if (new Date(startDt) >= new Date(endDt)) { toast('La hora fin debe ser posterior al inicio', 'error'); return; }
   if (checkConflict(selectedSala, startDt, endDt)) { toast('Conflicto de horario en esta sala', 'error'); return; }
 
+  // Build list of dates to create (main + recurrences)
+  const recurDates = recurEnabled
+    ? getRecurDates(date, document.getElementById('bk-recur-end').value, document.getElementById('bk-recur-freq').value)
+    : [];
+  const allDates = [date, ...recurDates]; // first = main booking
+
   closeBookingModal();
-  showLoading('Creando reunión en Teams...');
+  showLoading(`Creando ${allDates.length > 1 ? allDates.length + ' reuniones' : 'reunión'} en Teams...`);
 
-  const eventData = {
-    id: 'local_' + Date.now(),
-    title,
-    sala: selectedSala,
-    start: startDt,
-    end: endDt,
-    organizer: currentUser?.name || currentUser?.username || 'Tú',
-    organizerEmail: currentUser?.username,
-    description: desc,
-    attendees: extraAttendees,
-    graphId: null,
-    teamsUrl: null
-  };
+  let createdCount = 0;
+  let firstEvent = null;
 
-  // Try to create in Graph
-  if (isGraphAvailable && currentUser) {
-    try {
-      const created = await createGraphEvent(eventData);
-      if (created && created.id) {
-        eventData.graphId = created.id;
-        eventData.teamsUrl = created.onlineMeeting?.joinUrl || null;
-        eventData.id = 'graph_' + created.id;
-        toast('✅ Reserva creada y sincronizada con Teams', 'success');
-      }
-    } catch(e) {
-      toast('Guardado localmente (sin conexión a Graph)', 'info');
+  for (const d of allDates) {
+    const s = d + 'T' + start + ':00';
+    const e = d + 'T' + end + ':00';
+
+    // Skip if conflict on this date
+    if (checkConflict(selectedSala, s, e)) {
+      toast(`⚠️ Conflicto el ${d}, se omitió`, 'info', 2500);
+      continue;
     }
-  } else {
-    toast('Reserva creada localmente', 'info');
+
+    const eventData = {
+      id: 'local_' + Date.now() + '_' + d,
+      title,
+      sala: selectedSala,
+      start: s,
+      end: e,
+      organizer: currentUser?.name || currentUser?.username || 'Tú',
+      organizerEmail: currentUser?.username,
+      description: desc,
+      attendees: extraAttendees,
+      isRecurring: allDates.length > 1,
+      recurGroup: allDates.length > 1 ? (date + '_' + title) : null,
+      graphId: null,
+      teamsUrl: null
+    };
+
+    if (isGraphAvailable && currentUser) {
+      try {
+        const created = await createGraphEvent(eventData);
+        if (created && created.id) {
+          eventData.graphId = created.id;
+          eventData.teamsUrl = created.onlineMeeting?.joinUrl || null;
+          eventData.id = 'graph_' + created.id;
+        }
+      } catch(e) {}
+    }
+
+    events.push(eventData);
+    if (!firstEvent) firstEvent = eventData;
+    createdCount++;
   }
 
-  events.push(eventData);
   saveEvents();
   hideLoading();
+
+  if (createdCount === 0) {
+    toast('No se crearon reservas (todos los horarios tienen conflicto)', 'error');
+  } else if (allDates.length > 1) {
+    toast(`✅ ${createdCount} reuniones recurrentes creadas en Teams`, 'success');
+  } else {
+    toast('✅ Reserva creada y sincronizada con Teams', 'success');
+  }
+
   renderCalendar();
-  navigateToEvent(eventData);
+  if (firstEvent) navigateToEvent(firstEvent);
 }
 
 // ─────────────────────────────────────────────
@@ -968,7 +1095,8 @@ function openPanel(event) {
     <div class="panel-sala-badge sala${event.sala}">
       ${event.sala === 1 ? '🟣' : '🔵'} ${salaName}
     </div>
-    <h2 style="font-size:1.05rem;font-weight:700;margin-bottom:1.25rem;line-height:1.4">${escHtml(event.title)}</h2>
+    <h2 style="font-size:1.05rem;font-weight:700;margin-bottom:.5rem;line-height:1.4">${escHtml(event.title)}</h2>
+    ${event.isRecurring ? '<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);color:#fcd34d;border-radius:20px;padding:3px 10px;font-size:.75rem;font-weight:600;margin-bottom:.75rem;">🔁 Reunión recurrente</div>' : ''}
     
     <div class="panel-field">
       <div class="panel-field-label">📅 Fecha</div>
@@ -996,7 +1124,8 @@ function canCancelEvent(event) {
   const myEmail = currentUser.username?.toLowerCase();
   // Admins pueden cancelar cualquier reserva
   if (isAdmin(myEmail)) return true;
-  // El resto no puede cancelar
+  // El creador puede cancelar solo su propia reserva
+  if (event.organizerEmail && event.organizerEmail.toLowerCase() === myEmail) return true;
   return false;
 }
 
