@@ -1359,7 +1359,7 @@ function openPanel(event) {
     ${event.description ? `<div class="panel-field"><div class="panel-field-label">DESCRIPCION</div><div class="panel-field-value" style="color:var(--text2);font-size:.85rem">${escHtml(event.description.replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').trim())}</div></div>` : ''}
     ${event.attendees && event.attendees.length > 0 ? `<div class="panel-field"><div class="panel-field-label">PARTICIPANTES</div><div class="panel-field-value" style="color:var(--text2);font-size:.85rem">${event.attendees.map(a => escHtml(a)).join('<br>')}</div></div>` : ''}
     <hr class="panel-divider">
-    ${event.teamsUrl ? `<a href="${event.teamsUrl}" target="_blank" style="display:flex;align-items:center;gap:8px;padding:11px 14px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);border-radius:var(--radius);color:#93c5fd;text-decoration:none;font-size:.85rem;font-weight:600;margin-bottom:.75rem;">&#x25B6; Unirse a la reunión de Teams</a>` : ''}
+    ${event.teamsUrl ? `<a href="${event.teamsUrl}" target="_blank" style="display:flex;align-items:center;gap:8px;padding:11px 14px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);border-radius:var(--radius);color:#93c5fd;text-decoration:none;font-size:.85rem;font-weight:600;margin-bottom:.75rem;">&#x25B6; Unirse a la reuni&#243;n de Teams</a>` : ''}
     ${canCancelEvent(event) ? `
       <button class="btn-cancel-event" style="background:rgba(59,130,246,.1);color:#93c5fd;border-color:rgba(59,130,246,.3);margin-bottom:.5rem;" onclick="editBooking('${event.id}')">/ Modificar esta reserva</button>
       <button class="btn-cancel-event" onclick="cancelBooking('${event.id}')">x Cancelar esta reserva</button>
