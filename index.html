@@ -848,6 +848,24 @@ async function syncFromGraph() {
   }
 }
 
+// Extract attendees list from event body HTML
+function extractAttendeesFromBody(bodyHtml) {
+  if (!bodyHtml) return [];
+  const plain = bodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  // Body format includes attendees if they were added
+  // Try to find email addresses that are not the central account
+  const emails = [];
+  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+  const found = plain.match(emailRegex) || [];
+  found.forEach(email => {
+    const e = email.toLowerCase();
+    if (e !== CFG.centralAccount.toLowerCase() && !emails.includes(e)) {
+      emails.push(e);
+    }
+  });
+  return emails;
+}
+
 // Extract real organizer name from event body HTML
 function extractOrganizer(ge) {
   const body = ge.body?.content || '';
@@ -883,20 +901,26 @@ function mergeGraphEvents(graphEvents) {
     const sala = detectSala(ge);
     if (!sala) return; // ignorar eventos que no son de salas
     const idx = events.findIndex(e => e.graphId === ge.id);
+    // Preserve local-only fields (attendees, isRecurring, recurGroup) when updating
+    const existing = idx >= 0 ? events[idx] : null;
     const ev = {
       id: 'graph_' + ge.id,
       graphId: ge.id,
-      title: (ge.subject || 'Reunión').replace(/^\[Sala [AB]\]\s*/i, ''),
+      title: (ge.subject || 'Reunion').replace(/^\[Sala [^)]+\]\s*/i, '').replace(/^\[Sala de Reuniones [^)]+\]\s*/i, ''),
       sala: sala,
       start: ge.start.dateTime || ge.start,
       end: ge.end.dateTime || ge.end,
       organizer: extractOrganizer(ge),
       organizerEmail: extractOrganizerEmail(ge),
       teamsUrl: ge.onlineMeeting?.joinUrl || null,
-      description: extractDescription(ge.body?.content || '')
+      description: extractDescription(ge.body?.content || ''),
+      // Preserve these fields from local copy if they exist
+      attendees: existing?.attendees || extractAttendeesFromBody(ge.body?.content || ''),
+      isRecurring: existing?.isRecurring || false,
+      recurGroup: existing?.recurGroup || null
     };
-    if (idx >= 0) events[idx] = ev; // actualizar existente
-    else events.push(ev);           // agregar nuevo
+    if (idx >= 0) events[idx] = ev;
+    else events.push(ev);
   });
   saveEvents();
 }
@@ -1442,7 +1466,7 @@ async function createBooking() {
     }
 
     const eventData = {
-      id: 'local_' + Date.now() + '_' + d,
+      id: 'local_' + Date.now() + '_' + d + '_' + Math.random().toString(36).slice(2,7),
       title,
       sala: selectedSala,
       start: s,
@@ -1520,7 +1544,16 @@ function openPanel(event) {
       <div class="panel-field-value">${escHtml(event.organizer)}</div>
     </div>
     ${event.description ? `<div class="panel-field"><div class="panel-field-label">DESCRIPCION</div><div class="panel-field-value" style="color:var(--text2);font-size:.85rem">${escHtml(event.description.replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').trim())}</div></div>` : ''}
-    ${event.attendees && event.attendees.length > 0 ? `<div class="panel-field"><div class="panel-field-label">PARTICIPANTES</div><div class="panel-field-value" style="color:var(--text2);font-size:.85rem">${event.attendees.map(a => escHtml(a)).join('<br>')}</div></div>` : ''}
+    ${event.attendees && event.attendees.length > 0 ? `<div class="panel-field">
+      <div class="panel-field-label">PARTICIPANTES</div>
+      <div id="panel-attendees-list" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px;">
+        ${event.attendees.map(a => `
+          <div class="attendee-tag" style="display:inline-flex;align-items:center;gap:4px;">
+            ${escHtml(a)}
+            ${canCancelEvent(event) ? `<button onclick="removeAttendeeFromEvent('${event.id}','${a}')" title="Quitar" style="background:none;border:none;color:#93c5fd;cursor:pointer;font-size:.85rem;padding:0 2px;">x</button>` : ''}
+          </div>`).join('')}
+      </div>
+    </div>` : ''}
     <hr class="panel-divider">
     ${event.teamsUrl ? `<a href="${event.teamsUrl}" target="_blank" style="display:flex;align-items:center;gap:8px;padding:11px 14px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);border-radius:var(--radius);color:#93c5fd;text-decoration:none;font-size:.85rem;font-weight:600;margin-bottom:.75rem;">&#x25B6; Unirse a la reuni&#243;n de Teams</a>` : ''}
     ${canCancelEvent(event) ? `
@@ -1544,6 +1577,34 @@ function canCancelEvent(event) {
 function closePanel() {
   document.getElementById('detail-panel').classList.remove('open');
   selectedEvent = null;
+}
+
+function removeAttendeeFromEvent(eventId, email) {
+  if (!confirm('Quitar a ' + email + ' de esta reunion?')) return;
+  const ev = events.find(e => e.id === eventId);
+  if (!ev) return;
+  ev.attendees = (ev.attendees || []).filter(a => a !== email);
+  saveEvents();
+  // Update the panel display
+  openPanel(ev);
+  // If event has graphId, update in Graph
+  if (ev.graphId && isGraphAvailable) {
+    getAccessToken().then(token => {
+      const myEmail = currentUser?.username?.toLowerCase();
+      const isCentral = myEmail === CFG.centralAccount.toLowerCase();
+      const url = isCentral
+        ? 'https://graph.microsoft.com/v1.0/me/events/' + ev.graphId
+        : 'https://graph.microsoft.com/v1.0/users/' + CFG.centralAccount + '/events/' + ev.graphId;
+      fetch(url, {
+        method: 'PATCH',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          attendees: ev.attendees.map(a => ({ emailAddress: { address: a }, type: 'required' }))
+        })
+      }).catch(e => console.error('patch attendees error:', e));
+    });
+  }
+  toast('Participante eliminado', 'success');
 }
 
 async function cancelBooking(id) {
