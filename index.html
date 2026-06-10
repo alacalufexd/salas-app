@@ -13,6 +13,7 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>Reserva de Salas</title>
 <style>
+  /* ── TEMA OSCURO (default) ── */
   :root {
     --bg: #0f172a;
     --bg2: #1e293b;
@@ -39,6 +40,66 @@
     --radius-sm: 6px;
     --shadow: 0 4px 24px rgba(0,0,0,0.35);
   }
+
+  /* ── TEMA CLARO (Windows) ── */
+  [data-theme="light"] {
+    --bg: #f0f4f8;
+    --bg2: #ffffff;
+    --bg3: #e2e8f0;
+    --surface: #ffffff;
+    --surface2: #f8fafc;
+    --border: rgba(0,0,0,0.08);
+    --border2: rgba(0,0,0,0.14);
+    --text: #0f172a;
+    --text2: #475569;
+    --text3: #94a3b8;
+    --accent: #2563eb;
+    --accent2: #1d4ed8;
+    --sala1: #6d28d9;
+    --sala1bg: rgba(109,40,217,0.1);
+    --sala1border: rgba(109,40,217,0.35);
+    --sala2: #0369a1;
+    --sala2bg: rgba(3,105,161,0.1);
+    --sala2border: rgba(3,105,161,0.35);
+    --danger: #dc2626;
+    --success: #16a34a;
+    --warning: #d97706;
+    --shadow: 0 4px 24px rgba(0,0,0,0.10);
+  }
+  [data-theme="light"] .auth-card { box-shadow: 0 4px 32px rgba(0,0,0,0.12); }
+  [data-theme="light"] .event-block.sala1 { color: #4c1d95; }
+  [data-theme="light"] .event-block.sala2 { color: #0c4a6e; }
+  [data-theme="light"] .time-cell:hover { background: rgba(37,99,235,0.05); }
+
+  /* ── TEMA ROSADO ── */
+  [data-theme="pink"] {
+    --bg: #1a0a14;
+    --bg2: #2d1020;
+    --bg3: #4a1a33;
+    --surface: #2d1020;
+    --surface2: #3d1628;
+    --border: rgba(236,72,153,0.12);
+    --border2: rgba(236,72,153,0.22);
+    --text: #fdf2f8;
+    --text2: #f9a8d4;
+    --text3: #ec4899;
+    --accent: #db2777;
+    --accent2: #be185d;
+    --sala1: #9d174d;
+    --sala1bg: rgba(157,23,77,0.2);
+    --sala1border: rgba(157,23,77,0.5);
+    --sala2: #a855f7;
+    --sala2bg: rgba(168,85,247,0.15);
+    --sala2border: rgba(168,85,247,0.4);
+    --danger: #f43f5e;
+    --success: #34d399;
+    --warning: #fbbf24;
+    --shadow: 0 4px 24px rgba(219,39,119,0.25);
+  }
+  [data-theme="pink"] .event-block.sala1 { color: #fda4af; }
+  [data-theme="pink"] .event-block.sala2 { color: #d8b4fe; }
+  [data-theme="pink"] .auth-logo { background: linear-gradient(135deg, #db2777, #a855f7); }
+  [data-theme="pink"] .avatar { background: linear-gradient(135deg, #db2777, #a855f7); }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
   
@@ -184,6 +245,20 @@
   .loading-text { color: var(--text2); font-size: .9rem; }
 
   /* ── STATUS INDICATOR ── */
+  /* ── THEME PICKER ── */
+  .theme-picker { position: relative; display: flex; align-items: center; }
+  .theme-btn { display: flex; align-items: center; gap: 6px; padding: 5px 10px; background: transparent; border: 1px solid var(--border2); border-radius: var(--radius-sm); color: var(--text2); font-size: .78rem; cursor: pointer; transition: all .2s; }
+  .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .theme-btn .theme-dots { display: flex; gap: 3px; }
+  .theme-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .theme-dropdown { position: absolute; top: calc(100% + 8px); right: 0; background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius); padding: 6px; min-width: 170px; box-shadow: var(--shadow); z-index: 300; display: none; }
+  .theme-dropdown.open { display: block; }
+  .theme-option { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: var(--radius-sm); cursor: pointer; transition: background .15s; font-size: .83rem; color: var(--text); }
+  .theme-option:hover { background: var(--bg3); }
+  .theme-option.active { background: rgba(59,130,246,0.12); color: var(--accent); font-weight: 600; }
+  .theme-preview { display: flex; gap: 3px; }
+  .theme-preview span { width: 12px; height: 12px; border-radius: 3px; }
+
   .sync-status { display: flex; align-items: center; gap: 6px; font-size: .78rem; color: var(--text3); }
   .sync-dot { width: 7px; height: 7px; border-radius: 50%; }
   .sync-dot.online { background: var(--success); box-shadow: 0 0 6px var(--success); }
@@ -315,6 +390,42 @@
     <div class="sync-status" id="sync-status">
       <div class="sync-dot online" id="sync-dot"></div>
       <span id="sync-label">Sincronizado</span>
+    </div>
+    <div class="theme-picker" id="theme-picker">
+      <button class="theme-btn" onclick="toggleThemeDropdown()" title="Cambiar tema">
+        <div class="theme-dots" id="theme-btn-dots">
+          <div class="theme-dot" style="background:#334155"></div>
+          <div class="theme-dot" style="background:#3b82f6"></div>
+          <div class="theme-dot" style="background:#7c3aed"></div>
+        </div>
+        <span>Tema</span>
+      </button>
+      <div class="theme-dropdown" id="theme-dropdown">
+        <div class="theme-option" id="topt-dark" onclick="setTheme('dark')">
+          <div class="theme-preview">
+            <span style="background:#0f172a;border:1px solid #334155"></span>
+            <span style="background:#3b82f6"></span>
+            <span style="background:#7c3aed"></span>
+          </div>
+          Oscuro
+        </div>
+        <div class="theme-option" id="topt-light" onclick="setTheme('light')">
+          <div class="theme-preview">
+            <span style="background:#f0f4f8;border:1px solid #cbd5e1"></span>
+            <span style="background:#2563eb"></span>
+            <span style="background:#6d28d9"></span>
+          </div>
+          Claro (Windows)
+        </div>
+        <div class="theme-option" id="topt-pink" onclick="setTheme('pink')">
+          <div class="theme-preview">
+            <span style="background:#1a0a14;border:1px solid #4a1a33"></span>
+            <span style="background:#db2777"></span>
+            <span style="background:#a855f7"></span>
+          </div>
+          Rosado
+        </div>
+      </div>
     </div>
     <div class="nav-user">
       <div class="avatar" id="user-avatar">--</div>
@@ -637,6 +748,7 @@ function showApp() {
 
   // Sala names from config
   updateSalaLabels();
+  loadUserTheme();
   renderCalendar();
   startTimeUpdater();
 }
@@ -733,6 +845,36 @@ async function syncFromGraph() {
   }
 }
 
+// Extract real organizer name from event body HTML
+function extractOrganizer(ge) {
+  const body = ge.body?.content || '';
+  const plain = body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  const match = plain.match(/Organiza[^:]*:\s*([^(]+?)\s*\(/i);
+  if (match && match[1].trim()) return match[1].trim();
+  const name = ge.organizer?.emailAddress?.name || '';
+  const email = ge.organizer?.emailAddress?.address || '';
+  const centralEmail = CFG.centralAccount.toLowerCase();
+  if (email.toLowerCase() === centralEmail) return 'Desconocido';
+  return name || email || 'Desconocido';
+}
+
+function extractOrganizerEmail(ge) {
+  const body = ge.body?.content || '';
+  const plain = body.replace(/<[^>]+>/g, ' ');
+  const match = plain.match(/Organiza[^:]*:[^(]*\(([^)@\s]+@[^)\s]+)\)/i);
+  if (match && match[1].trim()) return match[1].trim();
+  return ge.organizer?.emailAddress?.address || null;
+}
+
+function extractDescription(bodyHtml) {
+  const plain = bodyHtml.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&#[0-9]+;/g,'').replace(/\s+/g,' ').trim();
+  const descMatch = plain.match(/Descripcion:\s*([^R]+?)(?:Reservado|$)/i);
+  if (descMatch && descMatch[1].trim() && descMatch[1].trim().toLowerCase() !== 'sin descripcion') {
+    return descMatch[1].trim().slice(0, 200);
+  }
+  return '';
+}
+
 function mergeGraphEvents(graphEvents) {
   graphEvents.forEach(ge => {
     const sala = detectSala(ge);
@@ -745,10 +887,10 @@ function mergeGraphEvents(graphEvents) {
       sala: sala,
       start: ge.start.dateTime || ge.start,
       end: ge.end.dateTime || ge.end,
-      organizer: ge.organizer?.emailAddress?.name || 'Desconocido',
-      organizerEmail: ge.organizer?.emailAddress?.address,
+      organizer: extractOrganizer(ge),
+      organizerEmail: extractOrganizerEmail(ge),
       teamsUrl: ge.onlineMeeting?.joinUrl || null,
-      description: ge.body?.content?.replace(/<[^>]+>/g, '').trim().slice(0, 200) || ''
+      description: extractDescription(ge.body?.content || '')
     };
     if (idx >= 0) events[idx] = ev; // actualizar existente
     else events.push(ev);           // agregar nuevo
@@ -898,7 +1040,14 @@ function checkConflict(sala, startDt, endDt, excludeId = null) {
   const start = new Date(startDt).getTime();
   const end = new Date(endDt).getTime();
   return events.some(e => {
-    if (e.id === excludeId || e.sala !== sala) return false;
+    if (e.sala !== sala) return false;
+    // Exclude single event
+    if (excludeId && !excludeId.startsWith('__series__') && e.id === excludeId) return false;
+    // Exclude entire series
+    if (excludeId && excludeId.startsWith('__series__')) {
+      const rg = excludeId.replace('__series__', '');
+      if (e.recurGroup === rg) return false;
+    }
     const eStart = new Date(e.start).getTime();
     const eEnd = new Date(e.end).getTime();
     return start < eEnd && end > eStart;
@@ -1216,8 +1365,19 @@ function checkFormConflict() {
     showConflict('La hora de fin debe ser posterior a la de inicio.');
     return;
   }
-  const conflict = checkConflict(selectedSala, startDt, endDt);
-  if (conflict) showConflict('Esta sala ya está reservada en ese horario.');
+  // When editing, exclude the event being edited (and its series) from conflict check
+  let excludeId = null;
+  if (editingEventId) {
+    if (editingEventId.startsWith('series:')) {
+      // For series edits, find the recurGroup and exclude all events in it
+      const rg = editingEventId.replace('series:', '');
+      excludeId = '__series__' + rg;
+    } else {
+      excludeId = editingEventId;
+    }
+  }
+  const conflict = checkConflict(selectedSala, startDt, endDt, excludeId);
+  if (conflict) showConflict('Esta sala ya esta reservada en ese horario.');
   else hideConflict();
 }
 
@@ -1562,7 +1722,7 @@ function renderWeek() {
       html += `<div class="current-time-line" style="top:${pct}px"></div>`;
     }
     // Events
-    dayEvents.forEach(ev => { html += renderEventBlock(ev, d); });
+    dayEvents.forEach(ev => { html += renderEventBlock(ev, d, dayEvents); });
     html += '</div>';
   });
   html += '</div></div>';
@@ -1603,7 +1763,7 @@ function renderDay() {
     const pct = getTimePct();
     html += `<div class="current-time-line" style="top:${pct}px"></div>`;
   }
-  dayEvents.forEach(ev => { html += renderEventBlock(ev, d); });
+  dayEvents.forEach(ev => { html += renderEventBlock(ev, d, dayEvents); });
   html += '</div>';
 
   if (dayEvents.length === 0) {
@@ -1618,14 +1778,34 @@ function renderDay() {
   scrollToWorkHours();
 }
 
-function renderEventBlock(ev, date) {
+function renderEventBlock(ev, date, allDayEvents) {
   const start = new Date(ev.start);
   const end = new Date(ev.end);
   const topPx = ((start.getHours() + start.getMinutes()/60) - HOURS_START) * SLOT_H;
   const heightPx = Math.max(((end.getHours() + end.getMinutes()/60) - (start.getHours() + start.getMinutes()/60)) * SLOT_H, 24);
   const salaClass = 'sala' + ev.sala;
-  
-  return `<div class="event-block ${salaClass}" style="top:${topPx}px;height:${heightPx}px" onclick="openPanelById('${ev.id}'); event.stopPropagation();">
+
+  // Detect overlapping events in same column to split width
+  const evStart = start.getTime();
+  const evEnd = end.getTime();
+  const overlaps = (allDayEvents || []).filter(other => {
+    if (other.id === ev.id) return false;
+    const oStart = new Date(other.start).getTime();
+    const oEnd = new Date(other.end).getTime();
+    return evStart < oEnd && evEnd > oStart;
+  });
+
+  let leftPct = 2, widthPct = 96;
+  if (overlaps.length > 0) {
+    // Assign columns: sort by id for stable ordering
+    const group = [ev, ...overlaps].sort((a,b) => a.id < b.id ? -1 : 1);
+    const col = group.findIndex(e => e.id === ev.id);
+    const total = group.length;
+    widthPct = Math.floor(96 / total);
+    leftPct = 2 + col * widthPct;
+  }
+
+  return `<div class="event-block ${salaClass}" style="top:${topPx}px;height:${heightPx}px;left:${leftPct}%;width:${widthPct}%;right:auto;" onclick="openPanelById('${ev.id}'); event.stopPropagation();">
     <div class="event-title">${escHtml(ev.title)}</div>
     ${heightPx > 36 ? `<div class="event-time">${formatTime(start)}-${formatTime(end)}</div>` : ''}
     ${heightPx > 52 ? `<div class="event-organizer">${escHtml(ev.organizer)}</div>` : ''}
@@ -1673,6 +1853,57 @@ function navigateToEvent(ev) {
 // ─────────────────────────────────────────────
 //  TIME UPDATER
 // ─────────────────────────────────────────────
+// ── THEME SYSTEM ──
+const THEME_KEY = 'salasapp_theme';
+
+const THEME_DOTS = {
+  dark:  ['#334155','#3b82f6','#7c3aed'],
+  light: ['#cbd5e1','#2563eb','#6d28d9'],
+  pink:  ['#4a1a33','#db2777','#a855f7']
+};
+
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme === 'dark' ? '' : theme);
+  // Per-user storage using their email as key
+  const userKey = THEME_KEY + '_' + (currentUser?.username || 'default');
+  localStorage.setItem(userKey, theme);
+  updateThemeUI(theme);
+  document.getElementById('theme-dropdown').classList.remove('open');
+}
+
+function updateThemeUI(theme) {
+  // Update button dots
+  const dots = THEME_DOTS[theme] || THEME_DOTS.dark;
+  const btnDots = document.getElementById('theme-btn-dots');
+  if (btnDots) {
+    btnDots.innerHTML = dots.map(c => `<div class="theme-dot" style="background:${c}"></div>`).join('');
+  }
+  // Update active option
+  ['dark','light','pink'].forEach(t => {
+    const el = document.getElementById('topt-' + t);
+    if (el) el.classList.toggle('active', t === theme);
+  });
+}
+
+function loadUserTheme() {
+  const userKey = THEME_KEY + '_' + (currentUser?.username || 'default');
+  const saved = localStorage.getItem(userKey) || 'dark';
+  document.documentElement.setAttribute('data-theme', saved === 'dark' ? '' : saved);
+  updateThemeUI(saved);
+}
+
+function toggleThemeDropdown() {
+  document.getElementById('theme-dropdown').classList.toggle('open');
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', e => {
+  if (!e.target.closest('#theme-picker')) {
+    const dd = document.getElementById('theme-dropdown');
+    if (dd) dd.classList.remove('open');
+  }
+});
+
 function startTimeUpdater() {
   // Update current time line every minute
   setInterval(() => {
