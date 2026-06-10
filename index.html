@@ -73,33 +73,36 @@
 
   /* ── TEMA ROSADO ── */
   [data-theme="pink"] {
-    --bg: #1a0a14;
-    --bg2: #2d1020;
-    --bg3: #4a1a33;
-    --surface: #2d1020;
-    --surface2: #3d1628;
+    --bg: #fff0f6;
+    --bg2: #ffffff;
+    --bg3: #fce7f3;
+    --surface: #ffffff;
+    --surface2: #fdf2f8;
     --border: rgba(236,72,153,0.12);
-    --border2: rgba(236,72,153,0.22);
-    --text: #fdf2f8;
-    --text2: #f9a8d4;
-    --text3: #ec4899;
+    --border2: rgba(236,72,153,0.25);
+    --text: #500724;
+    --text2: #9d174d;
+    --text3: #db2777;
     --accent: #db2777;
     --accent2: #be185d;
-    --sala1: #9d174d;
-    --sala1bg: rgba(157,23,77,0.2);
-    --sala1border: rgba(157,23,77,0.5);
-    --sala2: #a855f7;
-    --sala2bg: rgba(168,85,247,0.15);
-    --sala2border: rgba(168,85,247,0.4);
-    --danger: #f43f5e;
-    --success: #34d399;
-    --warning: #fbbf24;
-    --shadow: 0 4px 24px rgba(219,39,119,0.25);
+    --sala1: #be185d;
+    --sala1bg: rgba(190,24,93,0.1);
+    --sala1border: rgba(190,24,93,0.4);
+    --sala2: #7c3aed;
+    --sala2bg: rgba(124,58,237,0.1);
+    --sala2border: rgba(124,58,237,0.35);
+    --danger: #e11d48;
+    --success: #059669;
+    --warning: #d97706;
+    --shadow: 0 4px 24px rgba(219,39,119,0.15);
   }
-  [data-theme="pink"] .event-block.sala1 { color: #fda4af; }
-  [data-theme="pink"] .event-block.sala2 { color: #d8b4fe; }
+  [data-theme="pink"] .event-block.sala1 { color: #881337; }
+  [data-theme="pink"] .event-block.sala2 { color: #4c1d95; }
   [data-theme="pink"] .auth-logo { background: linear-gradient(135deg, #db2777, #a855f7); }
   [data-theme="pink"] .avatar { background: linear-gradient(135deg, #db2777, #a855f7); }
+  [data-theme="pink"] .time-cell:hover { background: rgba(219,39,119,0.05); }
+  [data-theme="pink"] .btn-ms { background: #db2777; }
+  [data-theme="pink"] .btn-ms:hover { background: #be185d; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
   
@@ -1993,7 +1996,7 @@ if ('serviceWorker' in navigator) {
 </script>
 <div style="position:fixed;bottom:10px;right:14px;z-index:9999;text-align:right;pointer-events:none;">
   <div style="font-size:.7rem;color:rgba(148,163,184,0.55);line-height:1.7;font-family:monospace;letter-spacing:.03em;">
-    <div style="font-weight:600;">v1.3.2</div>
+    <div style="font-weight:600;">v1.4.3</div>
     <div style="font-size:.62rem;color:rgba(148,163,184,0.4);">alacalufe-software</div>
   </div>
 </div>
