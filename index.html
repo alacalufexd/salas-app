@@ -754,6 +754,7 @@ function showApp() {
   loadUserTheme();
   renderCalendar();
   startTimeUpdater();
+  syncFromGraph();
 }
 
 function updateSalaLabels() {
@@ -889,9 +890,20 @@ function extractOrganizerEmail(ge) {
 
 function extractDescription(bodyHtml) {
   const plain = bodyHtml.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&#[0-9]+;/g,'').replace(/\s+/g,' ').trim();
+  // Formato SalasApp
   const descMatch = plain.match(/Descripcion:\s*([^R]+?)(?:Reservado|$)/i);
   if (descMatch && descMatch[1].trim() && descMatch[1].trim().toLowerCase() !== 'sin descripcion') {
     return descMatch[1].trim().slice(0, 200);
+  }
+  // Formato VisitasApp espejo: "Cliente: X Organiza: Y Notas: Z"
+  const clienteMatch = plain.match(/Cliente:\s*([^O]+?)(?:Organiza|Sala|$)/i);
+  if (clienteMatch && clienteMatch[1].trim()) {
+    let desc = 'Cliente: ' + clienteMatch[1].trim();
+    const notasMatch = plain.match(/Notas:\s*([^R]+?)(?:Reservado|$)/i);
+    if (notasMatch && notasMatch[1].trim() && notasMatch[1].trim().toLowerCase() !== 'sin notas') {
+      desc += ' | ' + notasMatch[1].trim();
+    }
+    return desc.slice(0, 200);
   }
   return '';
 }
@@ -906,7 +918,8 @@ function mergeGraphEvents(graphEvents) {
     const ev = {
       id: 'graph_' + ge.id,
       graphId: ge.id,
-      title: (ge.subject || 'Reunion').replace(/^\[Sala [^)]+\]\s*/i, '').replace(/^\[Sala de Reuniones [^)]+\]\s*/i, ''),
+      isVentasMirror: ((ge.location && ge.location.displayName || '').toLowerCase().includes('pilpilen') || (ge.subject || '').toLowerCase().includes('visita comercial')),
+      title: (ge.subject || 'Reunion').replace(/^\[Sala [^\]]+\]\s*/i, '').replace(/^\[Sala de Reuniones [^\]]+\]\s*/i, ''),
       sala: sala,
       start: ge.start.dateTime || ge.start,
       end: ge.end.dateTime || ge.end,
@@ -930,7 +943,11 @@ function detectSala(graphEvent) {
   const s1 = (CFG.sala1Name || 'Sala A').toLowerCase();
   const s2 = (CFG.sala2Name || 'Sala B').toLowerCase();
   if (loc.includes(s1)) return 1;
-  if (loc.includes(s2)) return 2;
+  if (loc.includes(s2) || loc.includes('sala pilpilen') || loc.includes('sala b - sala')) return 2;
+  // Detectar por subject si viene de app de ventas (espejo)
+  const subj2 = (graphEvent.subject || '').toLowerCase();
+  if (subj2.includes('[sala b]') || subj2.includes('visita comercial -')) return 2;
+  if (subj2.includes('[sala a]')) return 1;
   return null;
 }
 
@@ -1529,7 +1546,8 @@ function openPanel(event) {
       ${salaName}
     </div>
     <h2 style="font-size:1.05rem;font-weight:700;margin-bottom:.5rem;line-height:1.4">${escHtml(event.title)}</h2>
-    ${event.isRecurring ? '<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);color:#fcd34d;border-radius:20px;padding:3px 10px;font-size:.75rem;font-weight:600;margin-bottom:.75rem;">&#x21BA; Reunión recurrente</div>' : ''}
+    ${event.isRecurring ? '<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);color:#fcd34d;border-radius:20px;padding:3px 10px;font-size:.75rem;font-weight:600;margin-bottom:.75rem;">&#x21BA; Reunion recurrente</div>' : ''}
+    ${event.isVentasMirror ? '<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(8,145,178,.1);border:1px solid rgba(8,145,178,.35);color:#67e8f9;border-radius:20px;padding:3px 10px;font-size:.75rem;font-weight:600;margin-bottom:.75rem;">Visita comercial - Sala Pilpilen</div>' : ''}
     
     <div class="panel-field">
       <div class="panel-field-label">FECHA</div>
@@ -1869,8 +1887,9 @@ function renderEventBlock(ev, date, allDayEvents) {
     leftPct = 2 + col * widthPct;
   }
 
+  const ventasTag = ev.isVentasMirror ? ' [V]' : '';
   return `<div class="event-block ${salaClass}" style="top:${topPx}px;height:${heightPx}px;left:${leftPct}%;width:${widthPct}%;right:auto;" onclick="openPanelById('${ev.id}'); event.stopPropagation();">
-    <div class="event-title">${escHtml(ev.title)}</div>
+    <div class="event-title">${escHtml(ev.title)}${ventasTag}</div>
     ${heightPx > 36 ? `<div class="event-time">${formatTime(start)}-${formatTime(end)}</div>` : ''}
     ${heightPx > 52 ? `<div class="event-organizer">${escHtml(ev.organizer)}</div>` : ''}
   </div>`;
@@ -1976,10 +1995,10 @@ function startTimeUpdater() {
     });
   }, 60000);
 
-  // Re-sync from Graph every 2 minutes to pick up reservations from other users
+  // Re-sync from Graph every 90 segundos para capturar reservas de Sala Ventas
   setInterval(() => {
     syncFromGraph();
-  }, 120000);
+  }, 90000);
 }
 
 // ─────────────────────────────────────────────
