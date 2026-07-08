@@ -754,7 +754,6 @@ function showApp() {
   loadUserTheme();
   renderCalendar();
   startTimeUpdater();
-  syncFromGraph();
 }
 
 function updateSalaLabels() {
@@ -890,20 +889,16 @@ function extractOrganizerEmail(ge) {
 
 function extractDescription(bodyHtml) {
   const plain = bodyHtml.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&#[0-9]+;/g,'').replace(/\s+/g,' ').trim();
-  // Formato SalasApp
   const descMatch = plain.match(/Descripcion:\s*([^R]+?)(?:Reservado|$)/i);
   if (descMatch && descMatch[1].trim() && descMatch[1].trim().toLowerCase() !== 'sin descripcion') {
     return descMatch[1].trim().slice(0, 200);
   }
-  // Formato VisitasApp espejo: "Cliente: X Organiza: Y Notas: Z"
   const clienteMatch = plain.match(/Cliente:\s*([^O]+?)(?:Organiza|Sala|$)/i);
   if (clienteMatch && clienteMatch[1].trim()) {
-    let desc = 'Cliente: ' + clienteMatch[1].trim();
-    const notasMatch = plain.match(/Notas:\s*([^R]+?)(?:Reservado|$)/i);
-    if (notasMatch && notasMatch[1].trim() && notasMatch[1].trim().toLowerCase() !== 'sin notas') {
-      desc += ' | ' + notasMatch[1].trim();
-    }
-    return desc.slice(0, 200);
+    let d = 'Cliente: ' + clienteMatch[1].trim();
+    const nm = plain.match(/Notas:\s*([^R]+?)(?:Reservado|$)/i);
+    if (nm && nm[1].trim() && nm[1].trim().toLowerCase() !== 'sin notas') d += ' | ' + nm[1].trim();
+    return d.slice(0,200);
   }
   return '';
 }
@@ -944,11 +939,16 @@ function detectSala(graphEvent) {
   const s2 = (CFG.sala2Name || 'Sala B').toLowerCase();
   if (loc.includes(s1)) return 1;
   if (loc.includes(s2) || loc.includes('sala pilpilen') || loc.includes('sala b - sala')) return 2;
-  // Detectar por subject si viene de app de ventas (espejo)
   const subj2 = (graphEvent.subject || '').toLowerCase();
   if (subj2.includes('[sala b]') || subj2.includes('visita comercial -')) return 2;
   if (subj2.includes('[sala a]')) return 1;
   return null;
+}
+
+function dayOfWeekName(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  const names = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+  return names[d.getDay()];
 }
 
 async function createGraphEvent(eventData) {
@@ -1002,9 +1002,23 @@ async function createGraphEvent(eventData) {
     isOnlineMeeting: true,
     onlineMeetingProvider: 'teamsForBusiness',
     attendees,
-    // Mostrar al creador real como organizador en el cuerpo
     responseRequested: true
   };
+
+  // ── Recurrencia NATIVA de Graph: una sola invitacion para toda la serie ──
+  if (eventData.isRecurring && eventData.recurFreq && eventData.recurEndDate) {
+    const startDate = eventData.start.split('T')[0];
+    const patternMap = {
+      daily:    { type: 'daily', interval: 1 },
+      weekly:   { type: 'weekly', interval: 1, daysOfWeek: [dayOfWeekName(startDate)] },
+      biweekly: { type: 'weekly', interval: 2, daysOfWeek: [dayOfWeekName(startDate)] },
+      monthly:  { type: 'absoluteMonthly', interval: 1, dayOfMonth: parseInt(startDate.split('-')[2], 10) }
+    };
+    graphBody.recurrence = {
+      pattern: patternMap[eventData.recurFreq] || patternMap.weekly,
+      range: { type: 'endDate', startDate: startDate, endDate: eventData.recurEndDate }
+    };
+  }
 
   // Intentar crear en el calendario CENTRAL para que todos lo vean
   const centralUrl = isCentral
@@ -1460,76 +1474,92 @@ async function createBooking() {
   if (new Date(startDt) >= new Date(endDt)) { toast('La hora fin debe ser posterior al inicio', 'error'); return; }
   if (checkConflict(selectedSala, startDt, endDt)) { toast('Conflicto de horario en esta sala', 'error'); return; }
 
-  // Build list of dates to create (main + recurrences)
+  // Build list of dates to check conflicts (main + recurrences)
   const recurDates = recurEnabled
     ? getRecurDates(date, document.getElementById('bk-recur-end').value, document.getElementById('bk-recur-freq').value)
     : [];
-  const allDates = [date, ...recurDates]; // first = main booking
+  const allDates = [date, ...recurDates];
+  const freq = recurEnabled ? document.getElementById('bk-recur-freq').value : null;
+  const recurEndDate = recurEnabled ? document.getElementById('bk-recur-end').value : null;
 
-  closeBookingModal();
-  showLoading(`Creando ${allDates.length > 1 ? allDates.length + ' reuniones' : 'reunión'} en Teams...`);
-
-  let createdCount = 0;
-  let firstEvent = null;
-
-  for (const d of allDates) {
-    const s = d + 'T' + start + ':00';
-    const e = d + 'T' + end + ':00';
-
-    // Skip if conflict on this date
-    if (checkConflict(selectedSala, s, e)) {
-      toast(`Conflicto el ${d}, se omitió`, 'info', 2500);
-      continue;
-    }
-
-    const eventData = {
-      id: 'local_' + Date.now() + '_' + d + '_' + Math.random().toString(36).slice(2,7),
-      title,
-      sala: selectedSala,
-      start: s,
-      end: e,
-      organizer: currentUser?.name || currentUser?.username || 'Tú',
-      organizerEmail: currentUser?.username,
-      description: desc,
-      attendees: extraAttendees,
-      isRecurring: allDates.length > 1,
-      recurGroup: allDates.length > 1 ? (date + '_' + title) : null,
-      graphId: null,
-      teamsUrl: null
-    };
-
-    if (isGraphAvailable && currentUser) {
-      try {
-        const created = await createGraphEvent(eventData);
-        if (created && created.id) {
-          eventData.graphId = created.id;
-          eventData.teamsUrl = created.onlineMeeting?.joinUrl || null;
-          eventData.id = 'graph_' + created.id;
-        }
-      } catch(e) {}
-    }
-
-    events.push(eventData);
-    if (!firstEvent) firstEvent = eventData;
-    createdCount++;
+  // Check conflicts across all occurrence dates
+  const conflictDates = allDates.filter(function(d){
+    return checkConflict(selectedSala, d + 'T' + start + ':00', d + 'T' + end + ':00');
+  });
+  if (conflictDates.length > 0) {
+    toast('Conflicto de horario en: ' + conflictDates.join(', '), 'error', 5000);
+    return;
   }
 
-  // Aprender asistentes para sugerencias futuras
-  if (extraAttendees.length > 0) learnAttendees(extraAttendees);
+  closeBookingModal();
+  const isSerie = recurEnabled && allDates.length > 1;
+  showLoading(isSerie ? 'Creando serie recurrente en Teams...' : 'Creando reunion en Teams...');
 
+  const recurGroupId = isSerie ? (date + '_' + title + '_' + Date.now()) : null;
+
+  const eventData = {
+    id: 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+    title,
+    sala: selectedSala,
+    start: startDt,
+    end: endDt,
+    organizer: currentUser?.name || currentUser?.username || 'Tu',
+    organizerEmail: currentUser?.username,
+    description: desc,
+    attendees: extraAttendees,
+    isRecurring: isSerie,
+    recurGroup: recurGroupId,
+    // Datos de recurrencia nativa para Graph (una sola invitacion)
+    recurFreq: freq,
+    recurEndDate: recurEndDate,
+    graphId: null,
+    teamsUrl: null
+  };
+
+  if (isGraphAvailable && currentUser) {
+    try {
+      const created = await createGraphEvent(eventData);
+      if (created && created.id) {
+        eventData.graphId = created.id;
+        eventData.teamsUrl = created.onlineMeeting?.joinUrl || null;
+        eventData.id = 'graph_' + created.id;
+      }
+    } catch(e) {}
+  }
+
+  // Guardar UN evento por cada fecha localmente para la vista de calendario,
+  // pero todos comparten el mismo graphId (serie nativa) para reflejarse correctamente
+  if (isSerie) {
+    allDates.forEach(function(d, i){
+      events.push({
+        id: i === 0 ? eventData.id : ('local_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2,7)),
+        title: title, sala: selectedSala,
+        start: d + 'T' + start + ':00',
+        end: d + 'T' + end + ':00',
+        organizer: eventData.organizer, organizerEmail: eventData.organizerEmail,
+        description: desc, attendees: extraAttendees,
+        isRecurring: true, recurGroup: recurGroupId,
+        graphId: i === 0 ? eventData.graphId : null,
+        seriesMasterGraphId: eventData.graphId,
+        teamsUrl: eventData.teamsUrl
+      });
+    });
+  } else {
+    events.push(eventData);
+  }
+
+  if (extraAttendees.length > 0) learnAttendees(extraAttendees);
   saveEvents();
   hideLoading();
 
-  if (createdCount === 0) {
-    toast('No se crearon reservas (todos los horarios tienen conflicto)', 'error');
-  } else if (allDates.length > 1) {
-    toast(`${createdCount} reuniones recurrentes creadas en Teams`, 'success');
+  if (isSerie) {
+    toast('Serie de ' + allDates.length + ' reuniones creada (1 sola invitacion enviada)', 'success');
   } else {
     toast('Reserva creada y sincronizada con Teams', 'success');
   }
 
   renderCalendar();
-  if (firstEvent) navigateToEvent(firstEvent);
+  navigateToEvent(eventData);
 }
 
 // ─────────────────────────────────────────────
@@ -1546,7 +1576,7 @@ function openPanel(event) {
       ${salaName}
     </div>
     <h2 style="font-size:1.05rem;font-weight:700;margin-bottom:.5rem;line-height:1.4">${escHtml(event.title)}</h2>
-    ${event.isRecurring ? '<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);color:#fcd34d;border-radius:20px;padding:3px 10px;font-size:.75rem;font-weight:600;margin-bottom:.75rem;">&#x21BA; Reunion recurrente</div>' : ''}
+    ${event.isRecurring ? '<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);color:#fcd34d;border-radius:20px;padding:3px 10px;font-size:.75rem;font-weight:600;margin-bottom:.75rem;">&#x21BA; Reunión recurrente</div>' : ''}
     ${event.isVentasMirror ? '<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(8,145,178,.1);border:1px solid rgba(8,145,178,.35);color:#67e8f9;border-radius:20px;padding:3px 10px;font-size:.75rem;font-weight:600;margin-bottom:.75rem;">Visita comercial - Sala Pilpilen</div>' : ''}
     
     <div class="panel-field">
@@ -1642,15 +1672,20 @@ async function cancelBooking(id) {
   showLoading('Cancelando reunión...');
 
   if (deleteSeries && event.recurGroup) {
-    // Delete all events in the series
+    // Serie nativa: eliminar el evento maestro con UNA sola llamada
     const seriesEvents = events.filter(e => e.recurGroup === event.recurGroup);
-    let deleted = 0;
-    for (const ev of seriesEvents) {
-      if (ev.graphId && isGraphAvailable) await cancelGraphEvent(ev.graphId);
-      deleted++;
+    // El graphId maestro esta en el primer evento o en seriesMasterGraphId
+    let masterGraphId = event.graphId || event.seriesMasterGraphId;
+    if (!masterGraphId) {
+      const withGraph = seriesEvents.find(e => e.graphId || e.seriesMasterGraphId);
+      if (withGraph) masterGraphId = withGraph.graphId || withGraph.seriesMasterGraphId;
     }
+    if (masterGraphId && isGraphAvailable) {
+      await cancelGraphEvent(masterGraphId);
+    }
+    const deleted = seriesEvents.length;
     events = events.filter(e => e.recurGroup !== event.recurGroup);
-    toast(`Serie eliminada (${deleted} reuniones)`, 'success');
+    toast(`Serie completa eliminada (${deleted} reuniones)`, 'success');
   } else {
     if (event.graphId && isGraphAvailable) {
       const ok = await cancelGraphEvent(event.graphId);
@@ -1995,10 +2030,10 @@ function startTimeUpdater() {
     });
   }, 60000);
 
-  // Re-sync from Graph every 90 segundos para capturar reservas de Sala Ventas
+  // Re-sync from Graph every 2 minutes to pick up reservations from other users
   setInterval(() => {
     syncFromGraph();
-  }, 90000);
+  }, 120000);
 }
 
 // ─────────────────────────────────────────────
